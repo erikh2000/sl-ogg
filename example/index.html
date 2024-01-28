@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SL Web Ogg Example</title>
+</head>
+<body>
+    <script type="module">
+        /* If you are using a bundler (Vite, Webpack, TSC, etc) you'll instead import from the NPM package like 
+           'sl-web-ogg'. But this example is plain, unbundled JS inline to an HTML page. So it instead imports the 
+           JS file being served from the development web server. */
+        import { encodeAudioBuffer } from './sl-web-ogg.es.js';
+        
+        // Loads an AudioBuffer from an audio file fetched from a URL.
+        async function loadWave(url) {
+          const response = await fetch(url);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioContext = new AudioContext(); // Requires a user gesture on browser, e.g., clicking a button.
+          return await audioContext.decodeAudioData(arrayBuffer); // Returns AudioBuffer.
+        }
+        
+        // Downloads a file via the user's browser.
+        function downloadBlob(blob, filename) {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename || 'download';
+          document.body.appendChild(a);
+          a.click();
+          URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        }
+        
+        // When user clicks the button below, an AudioBuffer is loaded from a wave file on the local webserver,
+        // encoded to Vorbis Ogg format, and downloaded via the browser. If it doesn't work, check console.log for 
+        // errors or warnings. It should run clean.
+        async function tryIt() {
+            const audioBuffer = await loadWave('./did-i-die.wav');
+            const oggBlob = await encodeAudioBuffer(audioBuffer);
+            downloadBlob(oggBlob, 'did-i-die.ogg');
+        }
+        window.tryIt = tryIt;
+    </script>
+    <p>Can we make an Ogg Vorbis?</p>
+    <input type="button" onclick="tryIt()" value="We Sure Hope So!">
+</body>
+</html>

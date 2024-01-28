@@ -1,0 +1,31 @@
+{
+  "name": "sl-web-ogg",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "trace": "tsc --traceResolution",
+    "preview": "npm run update-preview && vite preview",
+    "test": "jest",
+    "build-wasm": "pushd c-source && ./build-wasm.sh && popd",
+    "update-preview": "npm run build && cp example/* dist && cp wasm/middle-layer.wasm dist"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.11",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8"
+  },
+  "license": "BSD",
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "collectCoverage": true,
+    "testMatch": [
+      "**/__tests__/**/*.test.ts?(x)"
+    ]
+  }
+}
