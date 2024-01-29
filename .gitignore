@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# WASM
+wasm/*.map
+
 # .gitmodules
 c-source/vorbis
 c-source/ogg

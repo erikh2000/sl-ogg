@@ -103,7 +103,7 @@ void encoder_clear(encoder_state* enc) {
     free(enc);
 }
 
-const int ANALYSIS_SAMPLE_COUNT = 1024; // If you change this, you must also change ANALYSIS_SAMPLE_COUNT in postMiddleLayer.js. And if you change it to a larger value, you may need to increase the stack size in emcc options.
+const int ANALYSIS_SAMPLE_COUNT = 8192; // If you change this, you must also change ANALYSIS_SAMPLE_COUNT in postMiddleLayer.js
 EMSCRIPTEN_KEEPALIVE
 float **encoder_analysis_buffer(encoder_state *enc) {
     return vorbis_analysis_buffer(&enc->vd, ANALYSIS_SAMPLE_COUNT);
