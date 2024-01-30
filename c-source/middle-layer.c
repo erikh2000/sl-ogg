@@ -68,14 +68,32 @@ void _encoder_add_data(encoder_state *enc) {
     enc->len += og->body_len;
 }
 
+void _addTags(vorbis_comment* pComment, const char* tags) {
+    if (tags == NULL) return;
+    char *tagsCopy = malloc(strlen(tags) + 1);
+    strcpy(tagsCopy, tags);
+    char *tag = strtok(tagsCopy, "\t");
+    while (tag != NULL) {
+        char *value = strchr(tag, '=');
+        if (value != NULL) {
+            *value = '\0';
+            value++;
+            vorbis_comment_add_tag(pComment, tag, value);
+        }
+        tag = strtok(NULL, "\t");
+    }
+    free(tagsCopy);
+}
+
 EMSCRIPTEN_KEEPALIVE
-encoder_state* encoder_init(int channelCount, float sampleRate, float quality) {
+encoder_state* encoder_init(int channelCount, float sampleRate, float quality, const char* tags) {
     ogg_packet h_comm, h_code;
     encoder_state *enc = malloc(sizeof(encoder_state));
     vorbis_info_init(&enc->vi);
     vorbis_encode_init_vbr(&enc->vi, channelCount, sampleRate, quality);
     vorbis_comment_init(&enc->vc);
     vorbis_comment_add_tag(&enc->vc, "ENCODER", "sl-web-ogg");
+    _addTags(&enc->vc, tags);
     vorbis_analysis_init(&enc->vd, &enc->vi);
     vorbis_block_init(&enc->vd, &enc->vb);
     srand(time(NULL));

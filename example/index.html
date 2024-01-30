@@ -37,7 +37,8 @@
         // errors or warnings. It should run clean.
         async function tryIt() {
             const audioBuffer = await loadWave('./did-i-die.wav');
-            const oggBlob = await encodeAudioBuffer(audioBuffer);
+            const tags = [{name:'fruit', value:'apple'}, {name:'vegetable', value:'broccoli'}];
+            const oggBlob = await encodeAudioBuffer(audioBuffer, { tags });
             downloadBlob(oggBlob, 'did-i-die.ogg');
         }
         window.tryIt = tryIt;

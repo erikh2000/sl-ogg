@@ -10,9 +10,11 @@ emcc \
   `# TOTAL_STACK=64k Based on the reserving about 32k of stack for the analysis buffer.` \
   `# g0 - change to g if you want to build with a .map and debug info for in-browser debugging.` \
   -ffast-math \
-  -g0 \
+  -g \
   -s ALLOW_MEMORY_GROWTH=0 \
   -s TOTAL_STACK=65536 \
+  -s EXPORTED_RUNTIME_METHODS=['allocateUTF8'] \
+  -s EXPORTED_FUNCTIONS=['_free'] \
   \
   `# middle layer API source files` \
   middle-layer.c \
