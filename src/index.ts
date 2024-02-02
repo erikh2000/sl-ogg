@@ -137,3 +137,35 @@ export async function encodeAudioBuffer(audioBuffer:AudioBuffer, encodeOptions:P
     if (tagsBuffer !== null) Module._free(tagsBuffer);
   }
 }
+
+async function _decodeOggArrayBuffer(arrayBuffer:ArrayBuffer, audioContext?:AudioContext):Promise<AudioBuffer> {
+  const useAudioContext = audioContext ?? new AudioContext(); // Requires a user gesture on browser, e.g., clicking a button.
+  return await useAudioContext.decodeAudioData(arrayBuffer); // Returns AudioBuffer.
+}
+
+function _decodeOggArrayBufferTags(arrayBuffer:ArrayBuffer):EncodeTag[] {
+  let pOggBytes:P = null, pComments:P = null;
+  try {
+    const oggBytes = new Uint8Array(arrayBuffer);
+    pOggBytes = Module._malloc(oggBytes.length);
+    Module.HEAPU8.set(oggBytes, pOggBytes);
+    pComments = Module._decoder_get_comments(pOggBytes, oggBytes.length);
+    console.log(pComments);
+    return []; // TODO
+  } finally {
+    if (pComments !== null) Module._free(pComments);
+    if (pOggBytes !== null) Module._free(pOggBytes);
+  }
+}
+
+export async function decodeOggBlob(blob:Blob, audioContext?:AudioContext):Promise<AudioBuffer> {
+  const arrayBuffer = await blob.arrayBuffer();
+  return await _decodeOggArrayBuffer(arrayBuffer, audioContext);
+}
+
+export async function decodeOggBlobWithTags(blob:Blob, audioContext?:AudioContext):Promise<[audioBuffer:AudioBuffer, tags:EncodeTag[]]> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const tags:EncodeTag[] = _decodeOggArrayBufferTags(arrayBuffer);
+  const audioBuffer = await _decodeOggArrayBuffer(arrayBuffer, audioContext);
+  return [audioBuffer, tags];
+}

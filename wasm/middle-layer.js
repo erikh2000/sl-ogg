@@ -1269,7 +1269,7 @@ var wasmImports = {
 };
 var wasmExports = createWasm();
 var ___wasm_call_ctors = createExportWrapper('__wasm_call_ctors');
-var _malloc = createExportWrapper('malloc');
+var _malloc = Module['_malloc'] = createExportWrapper('malloc');
 var _free = Module['_free'] = createExportWrapper('free');
 var _encoder_init = Module['_encoder_init'] = createExportWrapper('encoder_init');
 var _encoder_clear = Module['_encoder_clear'] = createExportWrapper('encoder_clear');
@@ -1277,6 +1277,7 @@ var _encoder_analysis_buffer = Module['_encoder_analysis_buffer'] = createExport
 var _encoder_process = Module['_encoder_process'] = createExportWrapper('encoder_process');
 var _encoder_data_len = Module['_encoder_data_len'] = createExportWrapper('encoder_data_len');
 var _encoder_transfer_data = Module['_encoder_transfer_data'] = createExportWrapper('encoder_transfer_data');
+var _decoder_get_comments = Module['_decoder_get_comments'] = createExportWrapper('decoder_get_comments');
 var ___errno_location = createExportWrapper('__errno_location');
 var _fflush = Module['_fflush'] = createExportWrapper('fflush');
 var _emscripten_stack_init = () => (_emscripten_stack_init = wasmExports['emscripten_stack_init'])();

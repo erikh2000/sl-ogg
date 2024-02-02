@@ -14,7 +14,7 @@ emcc \
   -s ALLOW_MEMORY_GROWTH=0 \
   -s TOTAL_STACK=65536 \
   -s EXPORTED_RUNTIME_METHODS=['allocateUTF8'] \
-  -s EXPORTED_FUNCTIONS=['_free'] \
+  -s EXPORTED_FUNCTIONS=['_free,_malloc'] \
   \
   `# middle layer API source files` \
   middle-layer.c \

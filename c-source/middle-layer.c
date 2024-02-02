@@ -24,10 +24,6 @@
    * The JS calling code may want to process audio in chunks, to avoid blocking execution during the encoding of a
      large audio file or continuous stream (e.g. microphone input). Hence, the value of having separated 
      encoder_analysis_buffer() and encoder_process() functions.
-   * You could certainly combine encoder_init() and encoder_analysis_buffer() into a single function, but then you'd
-     need to return multiple values from that function, which makes the JS calling code more complex from having to
-     decode the returned values. Hence, the value of having separated encoder_init() and encoder_analysis_buffer(). 
-   * Same single-return-value rationale for keeping encoder_data_len() and encoder_transfer_data() separated.
      
    I found the chosen separation of concerns in this design to be reasonable and hard to improve on. But I did make 
    some improvements to the original code:
@@ -151,4 +147,92 @@ EMSCRIPTEN_KEEPALIVE
 unsigned char *encoder_transfer_data(encoder_state *enc) {
     enc->len = 0;
     return enc->data;
+}
+
+unsigned char* _readNextPage(unsigned char* pReadPos, unsigned char* pStopReadPos, ogg_sync_state* pOy, ogg_page* pOg) {
+    const int BUFFER_SIZE = 8192;
+    
+    if (ogg_sync_pageout(pOy, pOg) == 1) return pReadPos; // Handle case where a previous call may have loaded multiple pages within the sync buffer.
+    
+    while(pReadPos != pStopReadPos) {
+        char *pSyncBuffer = ogg_sync_buffer(pOy, BUFFER_SIZE); 
+        const int readLen = (pReadPos + BUFFER_SIZE < pStopReadPos) ? BUFFER_SIZE : pStopReadPos - pReadPos;
+        memcpy(pSyncBuffer, pReadPos, readLen);
+        ogg_sync_wrote(pOy, readLen);
+        pReadPos += readLen;
+        if (ogg_sync_pageout(pOy, pOg) == 1) return pReadPos;
+    }
+    return NULL; // Reached end of buffer without finding a page. Buffer likely corrupted/truncated.   
+}
+
+char* _packComments(vorbis_comment* pComments) {
+  int packedLength = 0;
+  
+  int *pCommentLen = pComments->comment_lengths, *pCommentLenStop = pCommentLen + pComments->comments;
+  while(pCommentLen != pCommentLenStop) {
+    packedLength += *(pCommentLen++) + 1;
+  }
+  
+  char* pPacked = malloc(packedLength), *pWrite = pPacked;
+  for(int commentI = 0; commentI < pComments->comments; ++commentI) {
+    char *pUserComment = pComments->user_comments[commentI];
+    int commentLen = pComments->comment_lengths[commentI];
+    memcpy(pWrite, pUserComment, commentLen);
+    pWrite += commentLen;
+    *(pWrite++) = commentI == pComments->comments - 1 ? '\0' : '\t';
+  } 
+  
+  return pPacked;
+}
+
+EMSCRIPTEN_KEEPALIVE
+char *decoder_get_comments(unsigned char* pOggFileBytes, long oggFileBytesLen) {
+    enum {NEW, INITIALIZED, STREAM_INITIALIZED, FOUND_COMMENT} state = NEW;
+    
+    ogg_sync_state oy;
+    ogg_packet op;
+    ogg_page og;
+    ogg_stream_state os;
+    vorbis_info vi;
+    vorbis_comment vc;
+    char *pResult = NULL;
+    
+    ogg_sync_init(&oy);
+    vorbis_comment_init(&vc);
+    vorbis_info_init(&vi);
+    state = INITIALIZED;
+    
+    int packetsRead = 0, pagesRead = 0;
+    unsigned char *pReadPos = pOggFileBytes, *pStopReadPos = pReadPos + oggFileBytesLen;
+    while(pReadPos != pStopReadPos) {
+        pReadPos = _readNextPage(pReadPos, pStopReadPos, &oy, &og);
+        if (pReadPos == NULL) goto cleanup;
+        if (++pagesRead == 1) {
+            if (ogg_stream_init(&os, ogg_page_serialno(&og)) == -1) goto cleanup;
+            state = STREAM_INITIALIZED;
+        }
+        if (ogg_stream_pagein(&os, &og) == -1) goto cleanup;
+        
+        while(1) {
+            if (ogg_stream_packetout(&os, &op) != 1) break;
+            if (vorbis_synthesis_headerin(&vi, &vc, &op) != 0) goto cleanup;
+            if(++packetsRead == 2) { // Comments are in 2nd packet.
+                state = FOUND_COMMENT;
+                break;
+            }
+        }
+        if (state == FOUND_COMMENT) break;
+    }
+    if (state != FOUND_COMMENT) goto cleanup;
+    
+    pResult = _packComments(&vc);
+    
+cleanup:
+    if (state >= STREAM_INITIALIZED) ogg_stream_clear(&os);
+    if (state >= NEW) {
+        ogg_sync_clear(&oy);
+        vorbis_comment_clear(&vc);
+        vorbis_info_clear(&vi);
+    }
+    return pResult;
 }
