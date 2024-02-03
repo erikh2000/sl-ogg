@@ -18,7 +18,7 @@ const DEFAULT_ENCODE_OPTIONS:EncodeOptions = {
   tags: []
 };
 
-const {_encoder_clear, _encoder_data_len, _encoder_init, _encoder_process, _encoder_analysis_buffer, _encoder_transfer_data, ANALYSIS_SAMPLE_COUNT} = Module;
+const {_clearEncoder, _createAnalysisBuffer, _decodeComments, _initEncoder, _processEncoding, _getEncodedDataLen, _transferEncodedData, ANALYSIS_SAMPLE_COUNT} = Module;
 
 let waitForModuleInitPromise:Promise<void>|null = null;
 async function _waitForModuleInit():Promise<void> {
@@ -31,7 +31,7 @@ async function _waitForModuleInit():Promise<void> {
   return waitForModuleInitPromise;
 }
 
-function _createTagsBuffer(tags:EncodeTag[]):P {
+function _tagsToBuffer(tags:EncodeTag[]):P {
   if (!tags.length) return null;
   // Check for reserved characters in tag names and values.
   tags.forEach(tag => {
@@ -42,19 +42,27 @@ function _createTagsBuffer(tags:EncodeTag[]):P {
   });
   const serializedTabArray = tags.map(tag => `${tag.name}=${tag.value}`);
   const serializedTabs = serializedTabArray.join('\t');
-  const buffer = Module.allocateUTF8(serializedTabs);
-  // Module.stringToUTF8(serializedTabs, buffer, serializedTabs.length + 1); TODO is this needed or does the call above handle it?
-  return buffer;
+  return Module.allocateUTF8(serializedTabs);
 }
 
-function _initEncoder(audioBuffer:AudioBuffer, quality:number, tagsBuffer:P):P {
+function _bufferToTags(pBuffer:P):EncodeTag[] {
+  if (pBuffer === null) return [];
+  const serializedTabs:string = Module.UTF8ToString(pBuffer);
+  const serializedTabArray = serializedTabs.split('\t');
+  return serializedTabArray.map(serializedTab => {
+    const equalPos = serializedTab.indexOf('=');
+    if (equalPos === -1) throw Error(`Invalid tag "${serializedTab}"`);
+    return {
+      name: serializedTab.slice(0, equalPos),
+      value: serializedTab.slice(equalPos+1)
+    };
+  });
+}
+
+function _init(audioBuffer:AudioBuffer, quality:number, tagsBuffer:P):P {
   const channelCount = audioBuffer.numberOfChannels;
   const sampleRate = audioBuffer.sampleRate;
-  return _encoder_init(channelCount, sampleRate, quality, tagsBuffer);
-}
-
-function _createAnalysisBuffer(pEncoderState:number):P32 {
-  return _encoder_analysis_buffer(pEncoderState) >> 2;
+  return _initEncoder(channelCount, sampleRate, quality, tagsBuffer);
 }
 
 function _getChannelSampleBuffers(audioBuffer:AudioBuffer):Float32Array[] {
@@ -67,10 +75,10 @@ function _getChannelSampleBuffers(audioBuffer:AudioBuffer):Float32Array[] {
 }
 
 function _processAndTransferData(pEncoderState:P, sampleCount:number):Uint8Array {
-  _encoder_process(pEncoderState, sampleCount);
-  const oggBytesLength = _encoder_data_len(pEncoderState);
+  _processEncoding(pEncoderState, sampleCount);
+  const oggBytesLength = _getEncodedDataLen(pEncoderState);
   if (oggBytesLength === 0) return new Uint8Array(0);
-  const pOggBytes = _encoder_transfer_data(pEncoderState);
+  const pOggBytes = _transferEncodedData(pEncoderState);
   return new Uint8Array(Module.HEAPU8.subarray(pOggBytes, pOggBytes + oggBytesLength));
 }
 
@@ -113,15 +121,15 @@ export async function encodeAudioBuffer(audioBuffer:AudioBuffer, encodeOptions:P
   try {
     await _waitForModuleInit();
     
-    tagsBuffer = _createTagsBuffer(options.tags);
+    tagsBuffer = _tagsToBuffer(options.tags);
     const sampleCount = audioBuffer.length;
-    pEncoderState = _initEncoder(audioBuffer, options.quality, tagsBuffer);
+    pEncoderState = _init(audioBuffer, options.quality, tagsBuffer);
     const channelSampleBuffers = _getChannelSampleBuffers(audioBuffer);
     
     let fromSampleNo = 0;
     if (pEncoderState === null) throw Error('Unexpected');
     while(fromSampleNo < sampleCount) {
-      const p32AnalysisBuffer= _createAnalysisBuffer(pEncoderState);
+      const p32AnalysisBuffer= _createAnalysisBuffer(pEncoderState) >> 2;
       const fromSampleCount = Math.min(ANALYSIS_SAMPLE_COUNT, sampleCount - fromSampleNo);
       const oggBytes = _processSampleBufferChunk(pEncoderState, channelSampleBuffers, fromSampleNo, fromSampleCount, p32AnalysisBuffer);
       if (oggBytes.length) oggByteBuffers.push(oggBytes);
@@ -133,14 +141,14 @@ export async function encodeAudioBuffer(audioBuffer:AudioBuffer, encodeOptions:P
     if (lastOggBytes.length) oggByteBuffers.push(lastOggBytes);
     return new Blob(oggByteBuffers, {type:'audio/ogg'});
   } finally {
-    if (pEncoderState !== null) _encoder_clear(pEncoderState);
+    if (pEncoderState !== null) _clearEncoder(pEncoderState);
     if (tagsBuffer !== null) Module._free(tagsBuffer);
   }
 }
 
 async function _decodeOggArrayBuffer(arrayBuffer:ArrayBuffer, audioContext?:AudioContext):Promise<AudioBuffer> {
   const useAudioContext = audioContext ?? new AudioContext(); // Requires a user gesture on browser, e.g., clicking a button.
-  return await useAudioContext.decodeAudioData(arrayBuffer); // Returns AudioBuffer.
+  return await useAudioContext.decodeAudioData(arrayBuffer); // Returns AudioBuffer. This call detaches the arrayBuffer, making it unusable for most things.
 }
 
 function _decodeOggArrayBufferTags(arrayBuffer:ArrayBuffer):EncodeTag[] {
@@ -149,9 +157,8 @@ function _decodeOggArrayBufferTags(arrayBuffer:ArrayBuffer):EncodeTag[] {
     const oggBytes = new Uint8Array(arrayBuffer);
     pOggBytes = Module._malloc(oggBytes.length);
     Module.HEAPU8.set(oggBytes, pOggBytes);
-    pComments = Module._decoder_get_comments(pOggBytes, oggBytes.length);
-    console.log(pComments);
-    return []; // TODO
+    pComments = _decodeComments(pOggBytes, oggBytes.length);
+    return _bufferToTags(pComments);
   } finally {
     if (pComments !== null) Module._free(pComments);
     if (pOggBytes !== null) Module._free(pOggBytes);

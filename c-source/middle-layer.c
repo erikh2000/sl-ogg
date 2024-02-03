@@ -14,26 +14,22 @@
    3. Process one or more chunks of audio samples, copying them to the analysis buffer and calling encoder_process() 
       for each chunk. Libvorbis writes to a data buffer containing encoded ogg bytes. 
    4. Retrieve the data buffer with encoder_data_len() and encoder_transfer_data(). 
-   5. Free memory and clean up with encoder_clear(). 
+   5. Free memory and clean up with encoder_clear().
+   
+   The algorithm for decoding comment tags from a buffer of Ogg file bytes is much simpler:
+   1. Call decoder_get_comments() with the Ogg file bytes and it will return a pointer to a null-terminated string.
+   2. Free memory of the string with Module.free().
 
-   One might ask why not encapsulate further by having a single C function that does all of the above?
-   Reasons I can think of:
-   * The JS calling code may want to keep a single instance of the encoder and use it for multiple encodings. It
-     would reduce memory fragmentation and improve performance to reuse the same encoder instance. Hence, 
-     the value of having separated encoder_init() and encoder_clear() functions.
-   * The JS calling code may want to process audio in chunks, to avoid blocking execution during the encoding of a
-     large audio file or continuous stream (e.g. microphone input). Hence, the value of having separated 
-     encoder_analysis_buffer() and encoder_process() functions.
-     
-   I found the chosen separation of concerns in this design to be reasonable and hard to improve on. But I did make 
-   some improvements to the original code:
-   * encoder_analysis_buffer() allocates a buffer with a *fixed* size of ANALYSIS_SAMPLE_COUNT rather than letting 
-     the caller set a size. In the libvorbis code, a buffer will be created in stack memory with alloca() for the 
-     analysis buffer. It took me a few days to figure out that if I create a buffer for analysis that will hold an 
-     entire audio file, it will overflow the stack and cause unexpected behavior. So calling code really needs to 
-     be limited to writing to the analysis buffer in smaller chunks that will fit within the stack. (Or I could 
-     allocate from the heap instead of stack, but that would probably require forking libvorbis code, which I'd 
-     rather not do.)
+   For encoding, I did briefly consider having a single C function that handles all encoding in one call. But it 
+   seemed to me that it would be better to preserve an ability to process in chunks in the JS calling code.
+   
+   encoder_analysis_buffer() allocates a buffer with a *fixed* size of ANALYSIS_SAMPLE_COUNT rather than letting 
+   the caller set a size as in the original encoder.c. In the libvorbis code, a buffer will be created in stack memory 
+   with alloca() for the analysis buffer. It took me a few days to figure out that if I create a buffer for 
+   analysis that will hold an entire audio file, it will overflow the stack and cause unexpected behavior. So calling 
+   code really needs to be limited to writing to the analysis buffer in smaller chunks that will fit within the stack. 
+   (Or I could allocate from the heap instead of stack, but that would probably require forking libvorbis code, which 
+   I'd rather not do.)
 */
 #include <time.h>
 #include <stdlib.h>
@@ -41,27 +37,27 @@
 #include <vorbis/vorbisenc.h>
 #include <emscripten.h>
 
-typedef struct encoder_state {
-    ogg_stream_state os;
-    ogg_page og;
-    ogg_packet op;
-    vorbis_info vi;
-    vorbis_comment vc;
-    vorbis_dsp_state vd;
-    vorbis_block vb;
-    unsigned char *data;
-    long len;
-} encoder_state;
+typedef struct EncoderState {
+    ogg_stream_state streamState;
+    ogg_page page;
+    ogg_packet packet;
+    vorbis_info info;
+    vorbis_comment comment;
+    vorbis_dsp_state dspState;
+    vorbis_block block;
+    unsigned char *pEncodedData;
+    long encodedDataLen;
+} EncoderState;
 
-void _encoder_add_data(encoder_state *enc) {
-    ogg_page *og = &enc->og;
-    long len = enc->len + og->header_len + og->body_len;
-    if (len == 0) return;
-    enc->data = realloc(enc->data, len);
-    memcpy(enc->data + enc->len, og->header, og->header_len);
-    enc->len += og->header_len;
-    memcpy(enc->data + enc->len, og->body, og->body_len);
-    enc->len += og->body_len;
+void _addEncoderData(EncoderState* pEnc) {
+    ogg_page* pPage = &pEnc->page;
+    long len = pEnc->encodedDataLen + pPage->header_len + pPage->body_len;
+    if (!len) return;
+    pEnc->pEncodedData = realloc(pEnc->pEncodedData, len);
+    memcpy(pEnc->pEncodedData + pEnc->encodedDataLen, pPage->header, pPage->header_len);
+    pEnc->encodedDataLen += pPage->header_len;
+    memcpy(pEnc->pEncodedData + pEnc->encodedDataLen, pPage->body, pPage->body_len);
+    pEnc->encodedDataLen += pPage->body_len;
 }
 
 void _addTags(vorbis_comment* pComment, const char* tags) {
@@ -82,85 +78,85 @@ void _addTags(vorbis_comment* pComment, const char* tags) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-encoder_state* encoder_init(int channelCount, float sampleRate, float quality, const char* tags) {
-    ogg_packet h_comm, h_code;
-    encoder_state *enc = malloc(sizeof(encoder_state));
-    vorbis_info_init(&enc->vi);
-    vorbis_encode_init_vbr(&enc->vi, channelCount, sampleRate, quality);
-    vorbis_comment_init(&enc->vc);
-    vorbis_comment_add_tag(&enc->vc, "ENCODER", "sl-web-ogg");
-    _addTags(&enc->vc, tags);
-    vorbis_analysis_init(&enc->vd, &enc->vi);
-    vorbis_block_init(&enc->vd, &enc->vb);
+EncoderState* initEncoder(int channelCount, float sampleRate, float quality, const char* tags) {
+    ogg_packet commentPacket, codePacket;
+    EncoderState* pEnc = malloc(sizeof(EncoderState));
+    vorbis_info_init(&pEnc->info);
+    vorbis_encode_init_vbr(&pEnc->info, channelCount, sampleRate, quality);
+    vorbis_comment_init(&pEnc->comment);
+    vorbis_comment_add_tag(&pEnc->comment, "ENCODER", "sl-web-ogg");
+    _addTags(&pEnc->comment, tags);
+    vorbis_analysis_init(&pEnc->dspState, &pEnc->info);
+    vorbis_block_init(&pEnc->dspState, &pEnc->block);
     srand(time(NULL));
-    ogg_stream_init(&enc->os, rand());
-    enc->data = NULL;
-    enc->len = 0;
-    vorbis_analysis_headerout(&enc->vd, &enc->vc, &enc->op, &h_comm, &h_code);
-    ogg_stream_packetin(&enc->os, &enc->op);
-    ogg_stream_packetin(&enc->os, &h_comm);
-    ogg_stream_packetin(&enc->os, &h_code);
-    while(ogg_stream_flush(&enc->os, &enc->og) != 0) {
-        _encoder_add_data(enc);
+    ogg_stream_init(&pEnc->streamState, rand());
+    pEnc->pEncodedData = NULL;
+    pEnc->encodedDataLen = 0;
+    vorbis_analysis_headerout(&pEnc->dspState, &pEnc->comment, &pEnc->packet, &commentPacket, &codePacket);
+    ogg_stream_packetin(&pEnc->streamState, &pEnc->packet);
+    ogg_stream_packetin(&pEnc->streamState, &commentPacket);
+    ogg_stream_packetin(&pEnc->streamState, &codePacket);
+    while(ogg_stream_flush(&pEnc->streamState, &pEnc->page) != 0) {
+        _addEncoderData(pEnc);
     }
-    return enc;
+    return pEnc;
 }
 
 EMSCRIPTEN_KEEPALIVE
-void encoder_clear(encoder_state* enc) {
-    ogg_stream_clear(&enc->os);
-    vorbis_block_clear(&enc->vb);
-    vorbis_dsp_clear(&enc->vd);
-    vorbis_comment_clear(&enc->vc);
-    vorbis_info_clear(&enc->vi);
-    free(enc->data);
-    free(enc);
+void clearEncoder(EncoderState* pEnc) {
+    ogg_stream_clear(&pEnc->streamState);
+    vorbis_block_clear(&pEnc->block);
+    vorbis_dsp_clear(&pEnc->dspState);
+    vorbis_comment_clear(&pEnc->comment);
+    vorbis_info_clear(&pEnc->info);
+    free(pEnc->pEncodedData);
+    free(pEnc);
 }
 
 const int ANALYSIS_SAMPLE_COUNT = 8192; // If you change this, you must also change ANALYSIS_SAMPLE_COUNT in postMiddleLayer.js
 EMSCRIPTEN_KEEPALIVE
-float **encoder_analysis_buffer(encoder_state *enc) {
-    return vorbis_analysis_buffer(&enc->vd, ANALYSIS_SAMPLE_COUNT);
+float **createAnalysisBuffer(EncoderState* pEnc) {
+    return vorbis_analysis_buffer(&pEnc->dspState, ANALYSIS_SAMPLE_COUNT);
 }
 
 EMSCRIPTEN_KEEPALIVE
-void encoder_process(encoder_state *enc, int length) {
-    vorbis_analysis_wrote(&enc->vd, length);
-    while(vorbis_analysis_blockout(&enc->vd, &enc->vb) == 1) {
-        vorbis_analysis(&enc->vb, NULL);
-        vorbis_bitrate_addblock(&enc->vb);
-        while(vorbis_bitrate_flushpacket(&enc->vd, &enc->op)) {
-            ogg_stream_packetin(&enc->os, &enc->op);
-            while(ogg_stream_pageout(&enc->os, &enc->og) != 0) {
-                _encoder_add_data(enc);
+void processEncoding(EncoderState* pEnc, int length) {
+    vorbis_analysis_wrote(&pEnc->dspState, length);
+    while(vorbis_analysis_blockout(&pEnc->dspState, &pEnc->block) == 1) {
+        vorbis_analysis(&pEnc->block, NULL);
+        vorbis_bitrate_addblock(&pEnc->block);
+        while(vorbis_bitrate_flushpacket(&pEnc->dspState, &pEnc->packet)) {
+            ogg_stream_packetin(&pEnc->streamState, &pEnc->packet);
+            while(ogg_stream_pageout(&pEnc->streamState, &pEnc->page) != 0) {
+                _addEncoderData(pEnc);
             }
         }
     }
 }
 
 EMSCRIPTEN_KEEPALIVE
-long encoder_data_len(encoder_state *enc) {
-    return enc->len;
+long getEncodedDataLen(EncoderState* pEnc) {
+    return pEnc->encodedDataLen;
 }
 
 EMSCRIPTEN_KEEPALIVE
-unsigned char *encoder_transfer_data(encoder_state *enc) {
-    enc->len = 0;
-    return enc->data;
+unsigned char* transferEncodedData(EncoderState* pEnc) {
+    pEnc->encodedDataLen = 0;
+    return pEnc->pEncodedData;
 }
 
-unsigned char* _readNextPage(unsigned char* pReadPos, unsigned char* pStopReadPos, ogg_sync_state* pOy, ogg_page* pOg) {
+unsigned char* _readNextPage(unsigned char* pReadPos, unsigned char* pStopReadPos, ogg_sync_state* pSyncState, ogg_page* pPage) {
     const int BUFFER_SIZE = 8192;
     
-    if (ogg_sync_pageout(pOy, pOg) == 1) return pReadPos; // Handle case where a previous call may have loaded multiple pages within the sync buffer.
+    if (ogg_sync_pageout(pSyncState, pPage) == 1) return pReadPos; // Handle case where a previous call may have loaded multiple pages within the sync buffer.
     
     while(pReadPos != pStopReadPos) {
-        char *pSyncBuffer = ogg_sync_buffer(pOy, BUFFER_SIZE); 
+        char *pSyncBuffer = ogg_sync_buffer(pSyncState, BUFFER_SIZE); 
         const int readLen = (pReadPos + BUFFER_SIZE < pStopReadPos) ? BUFFER_SIZE : pStopReadPos - pReadPos;
         memcpy(pSyncBuffer, pReadPos, readLen);
-        ogg_sync_wrote(pOy, readLen);
+        ogg_sync_wrote(pSyncState, readLen);
         pReadPos += readLen;
-        if (ogg_sync_pageout(pOy, pOg) == 1) return pReadPos;
+        if (ogg_sync_pageout(pSyncState, pPage) == 1) return pReadPos;
     }
     return NULL; // Reached end of buffer without finding a page. Buffer likely corrupted/truncated.   
 }
@@ -169,9 +165,7 @@ char* _packComments(vorbis_comment* pComments) {
   int packedLength = 0;
   
   int *pCommentLen = pComments->comment_lengths, *pCommentLenStop = pCommentLen + pComments->comments;
-  while(pCommentLen != pCommentLenStop) {
-    packedLength += *(pCommentLen++) + 1;
-  }
+  while(pCommentLen != pCommentLenStop) { packedLength += *(pCommentLen++) + 1; }
   
   char* pPacked = malloc(packedLength), *pWrite = pPacked;
   for(int commentI = 0; commentI < pComments->comments; ++commentI) {
@@ -186,37 +180,38 @@ char* _packComments(vorbis_comment* pComments) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-char *decoder_get_comments(unsigned char* pOggFileBytes, long oggFileBytesLen) {
+char* decodeComments(unsigned char* pOggFileBytes, long oggFileBytesLen) {
     enum {NEW, INITIALIZED, STREAM_INITIALIZED, FOUND_COMMENT} state = NEW;
     
-    ogg_sync_state oy;
-    ogg_packet op;
-    ogg_page og;
-    ogg_stream_state os;
-    vorbis_info vi;
-    vorbis_comment vc;
-    char *pResult = NULL;
+    ogg_sync_state syncState;
+    ogg_packet packet;
+    ogg_page page;
+    ogg_stream_state streamState;
+    vorbis_info info;
+    vorbis_comment comment;
+    char* pResult = NULL;
     
-    ogg_sync_init(&oy);
-    vorbis_comment_init(&vc);
-    vorbis_info_init(&vi);
+    ogg_sync_init(&syncState);
+    vorbis_comment_init(&comment);
+    vorbis_info_init(&info);
     state = INITIALIZED;
     
     int packetsRead = 0, pagesRead = 0;
     unsigned char *pReadPos = pOggFileBytes, *pStopReadPos = pReadPos + oggFileBytesLen;
     while(pReadPos != pStopReadPos) {
-        pReadPos = _readNextPage(pReadPos, pStopReadPos, &oy, &og);
-        if (pReadPos == NULL) goto cleanup;
-        if (++pagesRead == 1) {
-            if (ogg_stream_init(&os, ogg_page_serialno(&og)) == -1) goto cleanup;
+        pReadPos = _readNextPage(pReadPos, pStopReadPos, &syncState, &page);
+        if (pReadPos == NULL) goto cleanup; // Read all the pages without finding 2 packets. A corrupted/truncated file, probably.
+        if (++pagesRead == 1) { // Annoyingly, I must wait until one page has been read, and then I can initialize a stream using the page's serial#.
+            if (ogg_stream_init(&streamState, ogg_page_serialno(&page)) == -1) goto cleanup;
             state = STREAM_INITIALIZED;
         }
-        if (ogg_stream_pagein(&os, &og) == -1) goto cleanup;
+        if (ogg_stream_pagein(&streamState, &page) == -1) goto cleanup;
         
+        // Read the first two packets in to find the comments. 
         while(1) {
-            if (ogg_stream_packetout(&os, &op) != 1) break;
-            if (vorbis_synthesis_headerin(&vi, &vc, &op) != 0) goto cleanup;
-            if(++packetsRead == 2) { // Comments are in 2nd packet.
+            if (ogg_stream_packetout(&streamState, &packet) != 1) break;
+            if (vorbis_synthesis_headerin(&info, &comment, &packet) != 0) goto cleanup; // Necessary to call on 1st as well as 2nd packet.
+            if(++packetsRead == 2) { // Comments are in 2nd packet, and that's all I want.
                 state = FOUND_COMMENT;
                 break;
             }
@@ -225,14 +220,14 @@ char *decoder_get_comments(unsigned char* pOggFileBytes, long oggFileBytesLen) {
     }
     if (state != FOUND_COMMENT) goto cleanup;
     
-    pResult = _packComments(&vc);
+    pResult = _packComments(&comment); // Just put the comments in a contiguous buffer so JS calling code can parse it more simply.
     
 cleanup:
-    if (state >= STREAM_INITIALIZED) ogg_stream_clear(&os);
+    if (state >= STREAM_INITIALIZED) ogg_stream_clear(&streamState);
     if (state >= NEW) {
-        ogg_sync_clear(&oy);
-        vorbis_comment_clear(&vc);
-        vorbis_info_clear(&vi);
+        ogg_sync_clear(&syncState);
+        vorbis_comment_clear(&comment);
+        vorbis_info_clear(&info);
     }
     return pResult;
 }

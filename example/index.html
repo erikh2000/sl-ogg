@@ -39,8 +39,6 @@
             const audioBuffer = await loadWave('./did-i-die.wav');
             const tags = [{name:'fruit', value:'apple'}, {name:'vegetable', value:'broccoli'}];
             const oggBlob = await encodeAudioBuffer(audioBuffer, { tags });
-            const [decodedAudioBuffer, decodedTags] = await decodeOggBlobWithTags(oggBlob);
-            console.log(decodedTags);
             downloadBlob(oggBlob, 'did-i-die.ogg');
         }
         window.tryIt = tryIt;

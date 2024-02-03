@@ -1254,6 +1254,7 @@ function dbg(text) {
       return ret;
     };
   var allocateUTF8 = stringToNewUTF8;
+
 function checkIncomingModuleAPI() {
   ignoredModuleProp('fetchSettings');
 }
@@ -1271,13 +1272,13 @@ var wasmExports = createWasm();
 var ___wasm_call_ctors = createExportWrapper('__wasm_call_ctors');
 var _malloc = Module['_malloc'] = createExportWrapper('malloc');
 var _free = Module['_free'] = createExportWrapper('free');
-var _encoder_init = Module['_encoder_init'] = createExportWrapper('encoder_init');
-var _encoder_clear = Module['_encoder_clear'] = createExportWrapper('encoder_clear');
-var _encoder_analysis_buffer = Module['_encoder_analysis_buffer'] = createExportWrapper('encoder_analysis_buffer');
-var _encoder_process = Module['_encoder_process'] = createExportWrapper('encoder_process');
-var _encoder_data_len = Module['_encoder_data_len'] = createExportWrapper('encoder_data_len');
-var _encoder_transfer_data = Module['_encoder_transfer_data'] = createExportWrapper('encoder_transfer_data');
-var _decoder_get_comments = Module['_decoder_get_comments'] = createExportWrapper('decoder_get_comments');
+var _initEncoder = Module['_initEncoder'] = createExportWrapper('initEncoder');
+var _clearEncoder = Module['_clearEncoder'] = createExportWrapper('clearEncoder');
+var _createAnalysisBuffer = Module['_createAnalysisBuffer'] = createExportWrapper('createAnalysisBuffer');
+var _processEncoding = Module['_processEncoding'] = createExportWrapper('processEncoding');
+var _getEncodedDataLen = Module['_getEncodedDataLen'] = createExportWrapper('getEncodedDataLen');
+var _transferEncodedData = Module['_transferEncodedData'] = createExportWrapper('transferEncodedData');
+var _decodeComments = Module['_decodeComments'] = createExportWrapper('decodeComments');
 var ___errno_location = createExportWrapper('__errno_location');
 var _fflush = Module['_fflush'] = createExportWrapper('fflush');
 var _emscripten_stack_init = () => (_emscripten_stack_init = wasmExports['emscripten_stack_init'])();
@@ -1293,6 +1294,7 @@ var _emscripten_stack_get_current = () => (_emscripten_stack_get_current = wasmE
 // include: postamble.js
 // === Auto-generated postamble setup entry stuff ===
 
+Module['UTF8ToString'] = UTF8ToString;
 Module['allocateUTF8'] = allocateUTF8;
 var missingLibrarySymbols = [
   'writeI53ToI64',
@@ -1541,7 +1543,6 @@ var unexportedSymbols = [
   'PATH_FS',
   'UTF8Decoder',
   'UTF8ArrayToString',
-  'UTF8ToString',
   'stringToUTF8Array',
   'stringToUTF8',
   'lengthBytesUTF8',
