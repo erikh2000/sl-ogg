@@ -12,9 +12,13 @@ A library for using Ogg Vorbis in web browsers with the following features:
 
 Why would I make another Ogg package? Every other package I looked at was lacking one or more of the features above. And maybe I'm biased towards writing my own code. Well, [I definitely am biased towards writing my own code](https://medium.com/gitconnected/write-more-reuse-less-fbf8a010c5f4).
 
+### Github Repository
+
+https://github.com/erikh2000/sl-web-ogg
+
 ## Code Examples
 
-The examples below give a quick idea of how to accomplish different things. For a full working example of encoding, see the simple web app under the `/example` directory.
+The examples below give a quick idea of how to accomplish different things. For a full working example of encoding, see the simple web app under [the `/example` directory](https://github.com/erikh2000/sl-web-ogg/blob/main/example).
 
 ### Simple Encoding
 ```javascript
@@ -78,7 +82,7 @@ decodeOggBlobWithTags(blob).then(([audioBuffer, tags]) => {
 });
 ```
 
-In keeping with Seespace Labs project style (see below), I decided against adding a documentation generator to this project. (It's an unneeded dependency.) But you can look at src/index.ts to see the full API documentation.
+I decided against adding a documentation generator to this project. (It's an unneeded dependency.) But you can look at JSDoc-style comments in [ `/src/index.ts`](https://github.com/erikh2000/sl-web-ogg/blob/main/src/index.ts) to see the full API documentation.
 
 ## Building
 
@@ -116,8 +120,7 @@ There's three layers to this thing.
 * Low dependencies, preferably none.
 * Any dependencies added are evaluated for security and maintenance issues.
 * Functions and variables are named for clarity and consistency.
-* Explain the reasons for doing things in comments even if it means revealing ignorance and mistakes. In other words, invite understanding and disagreement.
-* Better to have a small project done well than a sprawling jungle.
+* Explain the reasons for doing things in comments even if it means revealing mistakes. In other words, invite understanding and disagreement.
 
 ## Licensing
 

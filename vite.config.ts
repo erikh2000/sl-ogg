@@ -9,9 +9,23 @@ export default defineConfig({
     },
     rollupOptions: {
       external: [],
-      output: {
-        globals: {}
-      }
+      output: [
+        {
+          format: 'es',   // ES module format
+          dir: 'dist',
+          entryFileNames: '[name].es.js'
+        },{
+          format: 'cjs',  // CommonJS format
+          dir: 'dist',
+          entryFileNames: '[name].cjs.js',
+          exports: 'named'
+        },{
+          format: 'umd',  // UMD format
+          dir: 'dist',
+          entryFileNames: '[name].umd.js',
+          name: 'sl-web-ogg'
+        }
+      ]
     },
     sourcemap: true
   }

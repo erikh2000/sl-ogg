@@ -168,8 +168,9 @@ export async function decodeOggBlob(blob:Blob, audioContext?:AudioContext):Promi
  *      objects with "tag" and "value" members containing strings.
  */
  export async function decodeOggBlobWithTags(blob:Blob, audioContext?:AudioContext):Promise<[audioBuffer:AudioBuffer, tags:EncodeTag[]]> {
+  await _waitForModuleInit();
   const arrayBuffer = await blob.arrayBuffer();
-  const tags:EncodeTag[] = _decodeOggArrayBufferTags(arrayBuffer);
+  const tags:EncodeTag[] = _decodeOggArrayBufferTags(arrayBuffer); // Must be called before _decodeOggArrayBuffer() which detaches the arrayBuffer. 
   const audioBuffer = await _decodeOggArrayBuffer(arrayBuffer, audioContext);
   return [audioBuffer, tags];
 }
