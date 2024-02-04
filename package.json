@@ -1,17 +1,20 @@
 {
   "name": "sl-web-ogg",
+  "author": "Erik Hermansen",
+  "description": "A library for using Ogg Vorbis in web browsers",
+  "repository": "github:erikh2000/sl-web-ogg",
   "module": "dist/sl-web-ogg.es.js",
   "unpkg": "dist/sl-web-ogg.umd.js",
   "types": "dist/types/index.d.ts",
-  "private": true,
-  "version": "1.0.0",
+  "private": false,
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
     "build": "vite build && tsc --project ./tsconfig.json && cp wasm/middle-layer.wasm dist",
     "build-wasm": "pushd c-source && ./build-wasm.sh && popd",
     "trace": "tsc --traceResolution",
     "preview": "npm run update-preview && vite preview",
+    "publish": "npm run build && npm publish",
     "test": "jest",
     "test:watch": "jest --watch",
     "update-preview": "npm run build && cp example/* dist && cp wasm/middle-layer.wasm dist"
