@@ -1,16 +1,16 @@
 #!/bin/bash
 # Epiphany: It's much easier for me to understand one giant emcc command than splitting it
-# out into a bunch of pre-declared variables.
+# out into a bunch of pre-declared variables. Maybe it is for you too?
 emcc \
   `# include paths` \
   -I ogg/include -I vorbis/include -I vorbis/lib \
   \
   `# compile/link options. All of the exported function will be found in middle-layer.c prefixed with EMSCRIPTEN_KEEPALIVE.` \
   `# ALLOW_MEMORY_GROWTH=0 because heap allocations can invalidate pointers to memory returned from libvorbis.` \
-  `# TOTAL_STACK=64k Based on the reserving about 32k of stack for the analysis buffer.` \
+  `# TOTAL_STACK=64k Based on reserving about 32k of stack for the analysis buffer.` \
   `# g0 - change to g if you want to build with a .map and debug info for in-browser debugging.` \
   -ffast-math \
-  -g \
+  -g0 \
   -s ALLOW_MEMORY_GROWTH=0 \
   -s TOTAL_STACK=65536 \
   -s EXPORTED_RUNTIME_METHODS=['allocateUTF8','UTF8ToString'] \

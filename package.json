@@ -1,15 +1,19 @@
 {
   "name": "sl-web-ogg",
+  "module": "dist/sl-web-ogg.es.js",
+  "unpkg": "dist/sl-web-ogg.umd.js",
+  "types": "dist/types/index.d.ts",
   "private": true,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build && tsc --project ./tsconfig.json && cp wasm/middle-layer.wasm dist",
+    "build-wasm": "pushd c-source && ./build-wasm.sh && popd",
     "trace": "tsc --traceResolution",
     "preview": "npm run update-preview && vite preview",
     "test": "jest",
-    "build-wasm": "pushd c-source && ./build-wasm.sh && popd",
+    "test:watch": "jest --watch",
     "update-preview": "npm run build && cp example/* dist && cp wasm/middle-layer.wasm dist"
   },
   "devDependencies": {

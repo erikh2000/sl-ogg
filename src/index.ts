@@ -1,17 +1,8 @@
 import Module from '../wasm/middle-layer';
+import {P, P32, EncodeTag, EncodeOptions} from "./types";
+import {tagsToBuffer, bufferToTags} from "./tagUtil";
 
-type P32 = number|null; // Pointer to 32-bit value in WASM memory space. Can be used as an index into Module.HEAP*32.
-type P = number|null; // Pointer to an 8-bit value in WASM memory space. Can be used as an index into Module.HEAP*8.
-
-export type EncodeTag = {
-  name:string,
-  value:string
-};
-
-export type EncodeOptions = {
-  quality:number,  // Between -.1 (worst) and 1 (highest quality).
-  tags:EncodeTag[]
-};
+export type {EncodeTag, EncodeOptions} from "./types";
 
 const DEFAULT_ENCODE_OPTIONS:EncodeOptions = {
   quality: .5,
@@ -29,34 +20,6 @@ async function _waitForModuleInit():Promise<void> {
     Module.onRuntimeInitialized = resolve();
   });
   return waitForModuleInitPromise;
-}
-
-function _tagsToBuffer(tags:EncodeTag[]):P {
-  if (!tags.length) return null;
-  // Check for reserved characters in tag names and values.
-  tags.forEach(tag => {
-    if (tag.name.indexOf('=') !== -1) throw Error(`Tag name "${tag.name}" contains reserved character "="`);
-    if (tag.name.indexOf('\t') !== -1) throw Error(`Tag name "${tag.name}" contains reserved character (tab)`);
-    if (tag.value.indexOf('\t') !== -1) throw Error(`Tag value "${tag.value}" contains reserved character (tab)`);
-    // I don't care if value has an equal sign in it, because parsing can just stop at the first equal sign.
-  });
-  const serializedTabArray = tags.map(tag => `${tag.name}=${tag.value}`);
-  const serializedTabs = serializedTabArray.join('\t');
-  return Module.allocateUTF8(serializedTabs);
-}
-
-function _bufferToTags(pBuffer:P):EncodeTag[] {
-  if (pBuffer === null) return [];
-  const serializedTabs:string = Module.UTF8ToString(pBuffer);
-  const serializedTabArray = serializedTabs.split('\t');
-  return serializedTabArray.map(serializedTab => {
-    const equalPos = serializedTab.indexOf('=');
-    if (equalPos === -1) throw Error(`Invalid tag "${serializedTab}"`);
-    return {
-      name: serializedTab.slice(0, equalPos),
-      value: serializedTab.slice(equalPos+1)
-    };
-  });
 }
 
 function _init(audioBuffer:AudioBuffer, quality:number, tagsBuffer:P):P {
@@ -112,40 +75,6 @@ function _fillInDefaults(encodeOptions:Partial<EncodeOptions>):EncodeOptions {
   return useOptions;
 }
 
-export async function encodeAudioBuffer(audioBuffer:AudioBuffer, encodeOptions:Partial<EncodeOptions> = DEFAULT_ENCODE_OPTIONS):Promise<Blob> {
-  let pEncoderState:P = null;
-  const oggByteBuffers:Uint8Array[] = [];
-  const options = _fillInDefaults(encodeOptions);
-  let tagsBuffer:P = null;
-  
-  try {
-    await _waitForModuleInit();
-    
-    tagsBuffer = _tagsToBuffer(options.tags);
-    const sampleCount = audioBuffer.length;
-    pEncoderState = _init(audioBuffer, options.quality, tagsBuffer);
-    const channelSampleBuffers = _getChannelSampleBuffers(audioBuffer);
-    
-    let fromSampleNo = 0;
-    if (pEncoderState === null) throw Error('Unexpected');
-    while(fromSampleNo < sampleCount) {
-      const p32AnalysisBuffer= _createAnalysisBuffer(pEncoderState) >> 2;
-      const fromSampleCount = Math.min(ANALYSIS_SAMPLE_COUNT, sampleCount - fromSampleNo);
-      const oggBytes = _processSampleBufferChunk(pEncoderState, channelSampleBuffers, fromSampleNo, fromSampleCount, p32AnalysisBuffer);
-      if (oggBytes.length) oggByteBuffers.push(oggBytes);
-      fromSampleNo += fromSampleCount;
-      await _yield();
-    }
-    
-    const lastOggBytes = _finishProcessing(pEncoderState);
-    if (lastOggBytes.length) oggByteBuffers.push(lastOggBytes);
-    return new Blob(oggByteBuffers, {type:'audio/ogg'});
-  } finally {
-    if (pEncoderState !== null) _clearEncoder(pEncoderState);
-    if (tagsBuffer !== null) Module._free(tagsBuffer);
-  }
-}
-
 async function _decodeOggArrayBuffer(arrayBuffer:ArrayBuffer, audioContext?:AudioContext):Promise<AudioBuffer> {
   const useAudioContext = audioContext ?? new AudioContext(); // Requires a user gesture on browser, e.g., clicking a button.
   return await useAudioContext.decodeAudioData(arrayBuffer); // Returns AudioBuffer. This call detaches the arrayBuffer, making it unusable for most things.
@@ -158,19 +87,87 @@ function _decodeOggArrayBufferTags(arrayBuffer:ArrayBuffer):EncodeTag[] {
     pOggBytes = Module._malloc(oggBytes.length);
     Module.HEAPU8.set(oggBytes, pOggBytes);
     pComments = _decodeComments(pOggBytes, oggBytes.length);
-    return _bufferToTags(pComments);
+    return bufferToTags(pComments, Module);
   } finally {
     if (pComments !== null) Module._free(pComments);
     if (pOggBytes !== null) Module._free(pOggBytes);
   }
 }
 
+/**
+ * Encodes an AudioBuffer to an Ogg blob.
+ * 
+ * @param {AudioBuffer} audioBuffer AudioBuffer to encode to Ogg.
+ * @param {EncodeOptions} encodeOptions An optional object where you can set the following members:
+ *    quality: A number between 0 and 1. Default is .5.
+ *    tags: An array of objects with "tag" and "value" members containing strings. "tag" values can't contain 
+ *          tabs ('\t') or equal signs ("="). "value" values can't contain tabs.
+ * @throws {Error} If tags in an invalid format were passed or something unexpected happens.
+ * @returns {Promise<Blob>} A Blob containing the encoded Ogg file.
+ */
+export async function encodeAudioBuffer(audioBuffer:AudioBuffer, encodeOptions:Partial<EncodeOptions> = DEFAULT_ENCODE_OPTIONS):Promise<Blob> {
+  let pEncoderState:P = null;
+  const oggByteBuffers:Uint8Array[] = [];
+  const options = _fillInDefaults(encodeOptions);
+  let tagsBuffer:P = null;
+
+  try {
+    await _waitForModuleInit();
+
+    tagsBuffer = tagsToBuffer(options.tags, Module);
+    const sampleCount = audioBuffer.length;
+    pEncoderState = _init(audioBuffer, options.quality, tagsBuffer);
+    const channelSampleBuffers = _getChannelSampleBuffers(audioBuffer);
+
+    let fromSampleNo = 0;
+    if (pEncoderState === null) throw Error('Unexpected');
+    while(fromSampleNo < sampleCount) {
+      const p32AnalysisBuffer= _createAnalysisBuffer(pEncoderState) >> 2;
+      const fromSampleCount = Math.min(ANALYSIS_SAMPLE_COUNT, sampleCount - fromSampleNo);
+      const oggBytes = _processSampleBufferChunk(pEncoderState, channelSampleBuffers, fromSampleNo, fromSampleCount, p32AnalysisBuffer);
+      if (oggBytes.length) oggByteBuffers.push(oggBytes);
+      fromSampleNo += fromSampleCount;
+      await _yield();
+    }
+
+    const lastOggBytes = _finishProcessing(pEncoderState);
+    if (lastOggBytes.length) oggByteBuffers.push(lastOggBytes);
+    return new Blob(oggByteBuffers, {type:'audio/ogg'});
+  } finally {
+    if (pEncoderState !== null) _clearEncoder(pEncoderState);
+    if (tagsBuffer !== null) Module._free(tagsBuffer);
+  }
+}
+
+/** 
+ *  Decode an Ogg file from a Blob to an AudioBuffer. This depends on the browser's AudioContext.decodeAudioData() 
+ *  function. On some browsers, this function may require a user gesture, e.g., clicking a button. before it can be
+ *  called successfully. If you are creating a lot of AudioContexts in your app, you may want to reuse the same
+ *  AudioContext instance by passing it as a param. It's a good practice for cross-browser compatibility.
+ *  
+ *  @param {Blob} blob The Ogg file to decode.
+ *  @param {AudioContext} audioContext Optional. If not provided, a new AudioContext will be created.
+ *  @throws {Error} If the file is in an unexpected format, the browser needs a user gesture, or something unexpected.
+ *  @returns {Promise<AudioBuffer>} Populated with the decoded audio data.
+ */
 export async function decodeOggBlob(blob:Blob, audioContext?:AudioContext):Promise<AudioBuffer> {
   const arrayBuffer = await blob.arrayBuffer();
   return await _decodeOggArrayBuffer(arrayBuffer, audioContext);
 }
 
-export async function decodeOggBlobWithTags(blob:Blob, audioContext?:AudioContext):Promise<[audioBuffer:AudioBuffer, tags:EncodeTag[]]> {
+/**
+ * Decode an Ogg file from a Blob to an AudioBuffer and tags. This depends on the browser's AudioContext.decodeAudioData()
+ * function. On some browsers, this function may require a user gesture, e.g., clicking a button. before it can be
+ * called successfully. If you are creating a lot of AudioContexts in your app, you may want to reuse the same
+ * AudioContext instance by passing it as a param. It's a good practice for cross-browser compatibility.
+ *
+ *  @param {Blob} blob The Ogg file to decode.
+ *  @param {AudioContext} audioContext Optional. If not provided, a new AudioContext will be created.
+ *  @throws {Error} If the file is in an unexpected format, the browser needs a user gesture, or something unexpected.
+ *  @returns {Promise<Array>} Array where first element is the decoded audioBuffer and the second element is an array of 
+ *      objects with "tag" and "value" members containing strings.
+ */
+ export async function decodeOggBlobWithTags(blob:Blob, audioContext?:AudioContext):Promise<[audioBuffer:AudioBuffer, tags:EncodeTag[]]> {
   const arrayBuffer = await blob.arrayBuffer();
   const tags:EncodeTag[] = _decodeOggArrayBufferTags(arrayBuffer);
   const audioBuffer = await _decodeOggArrayBuffer(arrayBuffer, audioContext);

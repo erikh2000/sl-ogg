@@ -9,7 +9,7 @@
         /* If you are using a bundler (Vite, Webpack, TSC, etc) you'll instead import from the NPM package like 
            'sl-web-ogg'. But this example is plain, unbundled JS inline to an HTML page. So it instead imports the 
            JS file being served from the development web server. */
-        import { decodeOggBlobWithTags, encodeAudioBuffer } from './sl-web-ogg.es.js';
+        import { encodeAudioBuffer } from './sl-web-ogg.es.js';
         
         // Loads an AudioBuffer from an audio file fetched from a URL.
         async function loadWave(url) {
@@ -45,5 +45,7 @@
     </script>
     <p>Can we make an Ogg Vorbis?</p>
     <input type="button" onclick="tryIt()" value="We Sure Hope So!">
+    <p>(After you click the above button, an ogg file should download via your browser. This is a very 
+    unimpressive web app. I wanted the example code to be simple to understand and not full of UI stuff.)</p>
 </body>
 </html>
