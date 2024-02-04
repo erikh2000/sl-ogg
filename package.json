@@ -2,12 +2,19 @@
   "name": "sl-web-ogg",
   "author": "Erik Hermansen",
   "description": "A library for using Ogg Vorbis in web browsers",
-  "repository": "github:erikh2000/sl-web-ogg",
+  "repository": {
+    "type": "git",
+    "url:": "https://github.com/erikh2000/sl-web-ogg"
+  },
+  "bugs": {
+    "url": "https://github.com/erikh2000/sl-web-ogg/issues",
+    "email": "info@seespacelabs.com"
+  },
   "module": "dist/sl-web-ogg.es.js",
   "unpkg": "dist/sl-web-ogg.umd.js",
   "types": "dist/types/index.d.ts",
   "private": false,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "scripts": {
     "build": "vite build && tsc --project ./tsconfig.json && cp wasm/middle-layer.wasm dist",
