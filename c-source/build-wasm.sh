@@ -15,6 +15,7 @@ emcc \
   -s TOTAL_STACK=65536 \
   -s EXPORTED_RUNTIME_METHODS=['allocateUTF8','UTF8ToString'] \
   -s EXPORTED_FUNCTIONS=['_free,_malloc'] \
+  -s ENVIRONMENT=web \
   \
   `# middle layer API source files` \
   middle-layer.c \
